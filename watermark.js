@@ -41,6 +41,7 @@
     watermark_parent_height:0,     //水印的总体高度（默认值：body的scrollHeight和clientHeight的较大值）
     watermark_parent_node:null,     //水印插件挂载的父元素element,不输入则默认挂在body上
     monitor:true,                   //monitor 是否监控， true: 不可删除水印; false: 可删水印。
+    isPrint: false                  // 是否是打印模式，打印模式下会去除左边距，需要额外出来x坐标起点
   };
 
   const MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
@@ -63,9 +64,16 @@
     'attributes': true,
     'subtree': true,
   };
-
+  // 打印前处理
+  var beforePrint = function () {
+    loadMark({ ...globalSetting, isPrint: true })
+  }
+  // 打印后处理
+  var afterPrint = function () {
+    loadMark({ ...globalSetting, isPrint: false })
+  }
   /*加载水印*/
-  var loadMark = function(settings) {
+  var loadMark = function(settings = globalSetting) {
     /*采用配置项替换默认值，作用类似jquery.extend*/
     if(arguments.length===1&&typeof arguments[0] ==="object" ){
       var src=arguments[0]||{};
@@ -76,7 +84,6 @@
         else if(src[key] || src[key] === 0) defaultSettings[key]=src[key];
       }
     }
-
     /*如果元素存在则移除*/
     var watermark_element = document.getElementById(defaultSettings.watermark_id);
     watermark_element && watermark_element.parentNode && watermark_element.parentNode.removeChild(watermark_element);
@@ -94,7 +101,6 @@
 
     var setting = arguments[0]||{};
     var parentEle = watermark_hook_element;
-
     var page_offsetTop = 0;
     var page_offsetLeft = 0;
     if(setting.watermark_parent_width || setting.watermark_parent_height){
@@ -112,6 +118,11 @@
       }
     }
 
+    if (settings.isPrint) {
+      // 打印时水印边距需要处理
+      defaultSettings.watermark_x = -100
+    }
+    console.log('page_offsetLeft', page_offsetLeft, defaultSettings.watermark_x)
     /*创建水印外壳div*/
     var otdiv = document.getElementById(defaultSettings.watermark_id);
     var shadowRoot = null;
@@ -226,29 +237,26 @@
         else if(src[key] || src[key] === 0) defaultSettings[key]=src[key];
       }
     }
-
+    watermarkDom.disconnect();
     /*移除水印*/
     var watermark_element = document.getElementById(defaultSettings.watermark_id);
+    if (!watermark_element) return
     var _parentElement = watermark_element.parentNode;
     _parentElement.removeChild(watermark_element);
     // :ambulance: remove()
     // minotor 这个配置有些冗余
     // 如果用 MutationObserver 来监听dom变化防止删除水印
     // remove() 方法里用 MutationObserver 的 disconnect() 解除监听即可
-    watermarkDom.disconnect();
   };
-
   var globalSetting;
   /*初始化水印，添加load和resize事件*/
   watermark.init = function(settings) {
     globalSetting = settings;
-    loadMark(settings);
-    window.addEventListener('onload', function () {
-      loadMark(settings);
-    });
-    window.addEventListener('resize', function () {
-      loadMark(settings);
-    });
+    loadMark(globalSetting);
+    window.addEventListener('onload', loadMark);
+    window.addEventListener('resize', loadMark);
+    window.addEventListener('beforeprint', beforePrint)
+    window.addEventListener('afterprint', afterPrint)
   };
 
   /*手动加载水印*/
@@ -261,8 +269,11 @@
   watermark.remove = function(){
     forceRemove = true;
     removeMark();
+    window.removeEventListener('resize', loadMark)
+    window.removeEventListener('onload', loadMark)
+    window.removeEventListener('beforeprint', beforePrint)
+    window.removeEventListener('afterprint', afterPrint)
   };
-
 
   //监听dom是否被移除或者改变属性的回调函数
   var callback = function (records){
@@ -270,7 +281,6 @@
       loadMark(globalSetting);
       return;
     }
-
     // 监听父节点的尺寸是否发生了变化, 如果发生改变, 则进行重新绘制
     var watermark_parent_element = document.getElementById(defaultSettings.watermark_parent_node);
     if (watermark_parent_element) {
@@ -283,7 +293,8 @@
       }
     }
   };
-  const MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+
+
   var watermarkDom = new MutationObserver(callback);
   var option = {
     'childList': true,
